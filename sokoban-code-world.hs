@@ -75,9 +75,16 @@ isPassable Ground    = True
 isPassable Storage   = True
 isPassable otherwise = False
 
+startScreen :: Picture
+startScreen = (scaled 3 3 $ lettering $ pack "Sokoban!") &
+  (translated 0 (-2) $ lettering $ pack "Press N to skip the current level") &
+  (translated 0 (-4) $ lettering $ pack "Press U to undo your move") &
+  (translated 0 (-6) $ lettering $ pack "Press space bar to play")
+
 winningScreen :: Integer -> Picture
-winningScreen n = lettering $ pack $
-  "Poziom ukończony, liczba ruchów: " ++ show n
+winningScreen n = (lettering $ pack $
+  "Level finished in " ++ show n ++ " moves!") &
+  (translated 0 (-5) $ lettering $ pack "Press space bar for next level!")
 
 runActivity :: Activity s -> IO ()
 runActivity (Activity state0 handle draw) = activityOf state0 handle draw
@@ -97,7 +104,7 @@ withStartScreen (Activity state0 handle draw) =
          | key == pack " "             = Running state0
     handle' _              StartScreen = StartScreen
     handle' e              (Running s) = Running (handle e s)
-    draw' StartScreen = etap4
+    draw' StartScreen = startScreen
     draw' (Running s) = draw s
 
 withUndo :: Eq a => Activity a -> Activity (WithUndo a)
@@ -175,63 +182,6 @@ maze3 = Maze (C 3 1) maze
           | x == 1 && y /= 1                = Box
           | otherwise                       = Ground
 
-badMazes :: [Maze]
-badMazes = [badMaze0, badMaze1, badMaze2, badMaze3, badMaze4]
-
-badMaze0 :: Maze
-badMaze0 = Maze (C (-1) (-2)) maze
-  where maze (C x y)
-          | abs x > 4  || abs y > 4  = Blank
-          | abs x == 4 || abs y == 4 = Wall
-          | x ==  2 && y <= 0        = Wall
-          | x ==  3 && y <= 0        = Wall
-          | x >= -2 && y == 0        = Box
-          | otherwise                = Ground
-
-badMaze1 :: Maze
-badMaze1 = Maze (C 0 0) maze
-    where maze (C x y)
-            | abs x > 4  || abs y > 2         = Blank
-            | x >= -1 && x <= 4 && abs y == 1 = Wall
-            | x == 4 && y == 0                = Wall
-            | x == -1 && y == 0               = Wall
-            | x ==  0 && y == 0               = Ground
-            | (x == 1 || x == 2) && y == 0    = Box
-            | x == 3 && y == 0                = Storage
-            | otherwise                       = Blank
-
-badMaze2 :: Maze
-badMaze2 = Maze (C 0 (-1)) maze
-   where maze (C x y)
-            | abs x > 3  || abs y > 3    = Blank
-            | x ==  -1 && y >= -1        = Wall
-            | x ==  1 && y <= -1         = Wall
-            | x == -2 && y == 0          = Storage
-            | x == 0 && y == -2          = Storage
-            | (x == 0 || x == 1)  && y == 0   = Box
-            | otherwise                  = Ground
-
-badMaze3 :: Maze
-badMaze3 = Maze (C 3 (-2)) maze
-  where maze (C x y)
-          | abs x > 4 || y > 2 || y < -3              = Blank
-          | abs x == 4 || y == 2 || y == -3 || x == 0 = Wall
-          | x == -3 && y == 1                         = Storage
-          | x == 1 && y == 0                          = Box
-          | otherwise                                 = Ground
-
-badMaze4 :: Maze
-badMaze4 = Maze (C 0 0) maze
-  where maze (C x y)
-          | x > 4 || x < -5 || y > 3 || y < -2     = Blank
-          | x == 4 && y == 0                       = Blank
-          | x == 4 || x == -5 || y == 3 || y == -2 = Wall
-          | x == 3 && y == 0                       = Storage
-          | x == -3 && y == 0                      = Box
-          | y == 0                                 = Ground
-          | y == 1 && x < -2                       = Ground
-          | otherwise                              = Wall
-
 elemList :: Eq a => a -> [a] -> Bool
 elemList _ []    = False
 elemList e (h:t) = h == e || elemList e t
@@ -268,23 +218,6 @@ foldList :: (a -> b -> b) -> b -> [a] -> b
 foldList _ e []    = e
 foldList f e (h:t) = f h (foldList f e t)
 
-isGraphClosed :: Eq a => a -> (a -> [a]) -> (a -> Bool) -> Bool
-isGraphClosed initial neighbours isOk =
-  fst $ dfs [] initial neighbours isOk
-  where
-  dfs visited initial neighbours isOk =
-    if not $ isOk initial then (False, [])
-    else
-      foldList
-        (\v (b, l) ->
-          if not b || elemList v l then (b, l)
-          else
-            let (b', l') = dfs l v neighbours isOk in
-              (b', appendList l l')
-        )
-        (True, initial:visited)
-        (neighbours initial)
-
 getAllReachable :: Eq a => a -> (a -> [a]) -> [a]
 getAllReachable initial neighbours =
   dfs [] initial neighbours
@@ -300,10 +233,6 @@ getAllReachable initial neighbours =
 reachable :: Eq a => a -> a -> (a -> [a]) -> Bool
 reachable v initial neighbours =
   elemList v $ getAllReachable initial neighbours
-
-allReachable :: Eq a => [a] -> a -> (a -> [a]) -> Bool
-allReachable vs initial neighbours =
-  allList (\v -> reachable v initial neighbours) vs
 
 graphFromMaze :: Maze -> Coord -> [Coord]
 graphFromMaze (Maze _ tiles) (C x y) =
@@ -322,21 +251,6 @@ getMazeSize maze@(Maze _ tiles) =
       then findSize (n + 1)
       else n
 
-isClosed :: Maze -> Bool
-isClosed maze@(Maze initial tiles) =
-  isGraphClosed
-    initial
-    (graphFromMaze maze)
-    (\coord -> tiles coord /= Blank)
-
-isSane :: Maze -> Bool
-isSane maze@(Maze initial tiles) =
-  (listLength $ filterList (\coord -> tiles coord == Storage) reachableNodes) >=
-  (listLength $ filterList (\coord -> tiles coord == Box)     reachableNodes)
-  where
-    size           = getMazeSize maze
-    reachableNodes = getAllReachable initial $ graphFromMaze maze
-
 pictureOfBools :: [Bool] -> Picture
 pictureOfBools xs = translated (-fromIntegral k / 2) (fromIntegral k) (go 0 xs)
   where n = listLength xs
@@ -352,11 +266,6 @@ pictureOfBools xs = translated (-fromIntegral k / 2) (fromIntegral k) (go 0 xs)
 
         pictureOfBool True =  colored green (solidCircle 0.4)
         pictureOfBool False = colored red   (solidCircle 0.4)
-
-etap4 :: Picture
-etap4 = pictureOfBools $
-          Prelude.map (\maze -> isClosed maze && isSane maze) $
-          appendList mazes badMazes
 
 initialBoxes :: Maze -> [Coord]
 initialBoxes maze@(Maze initial tiles) =
